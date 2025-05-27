@@ -9,7 +9,8 @@ export const validateCommand = (commandStr: string): ValidationResult => {
     return { isValid: false, error: 'Command cannot be empty' };
   }
 
-  const trimmed = commandStr.trim();
+  const sanitizedCommandStr = sanitizeString(commandStr);
+  const trimmed = sanitizedCommandStr.trim();
   if (trimmed.length === 0) {
     return { isValid: false, error: 'Command cannot be empty' };
   }
@@ -26,7 +27,8 @@ export const validateSetCommand = (args: string[]): ValidationResult => {
     return { isValid: false, error: 'Usage: /set [work|break|long] <minutes>' };
   }
 
-  const [type, minutesStr] = args;
+  const sanitizedArgs = args.map(sanitizeString);
+  const [type, minutesStr] = sanitizedArgs;
   const validTypes = ['work', 'break', 'long'];
   
   if (!validTypes.includes(type.toLowerCase())) {
@@ -54,7 +56,8 @@ export const validateSessionName = (name: string): ValidationResult => {
     return { isValid: false, error: 'Session name cannot be empty' };
   }
 
-  const trimmed = name.trim();
+  const sanitizedName = sanitizeString(name);
+  const trimmed = sanitizedName.trim();
   if (trimmed.length === 0) {
     return { isValid: false, error: 'Session name cannot be empty' };
   }
@@ -71,7 +74,8 @@ export const validateCommitMessage = (message: string): ValidationResult => {
     return { isValid: false, error: 'Commit message cannot be empty' };
   }
 
-  const trimmed = message.trim();
+  const sanitizedMessage = sanitizeString(message);
+  const trimmed = sanitizedMessage.trim();
   if (trimmed.length === 0) {
     return { isValid: false, error: 'Commit message cannot be empty' };
   }
@@ -85,16 +89,22 @@ export const validateCommitMessage = (message: string): ValidationResult => {
 
 export const validateTheme = (theme: string): ValidationResult => {
   const validThemes = ['light', 'dark'];
-  if (theme && !validThemes.includes(theme.toLowerCase())) {
-    return { isValid: false, error: 'Usage: /theme [light|dark] (toggles if no arg)' };
+  if (theme) {
+    const sanitizedTheme = sanitizeString(theme);
+    if (!validThemes.includes(sanitizedTheme.toLowerCase())) {
+      return { isValid: false, error: 'Usage: /theme [light|dark] (toggles if no arg)' };
+    }
   }
   return { isValid: true };
 };
 
 export const validateSound = (sound: string): ValidationResult => {
   const validOptions = ['on', 'off'];
-  if (sound && !validOptions.includes(sound.toLowerCase())) {
-    return { isValid: false, error: 'Usage: /sound [on|off] (toggles if no arg)' };
+  if (sound) {
+    const sanitizedSound = sanitizeString(sound);
+    if (!validOptions.includes(sanitizedSound.toLowerCase())) {
+      return { isValid: false, error: 'Usage: /sound [on|off] (toggles if no arg)' };
+    }
   }
   return { isValid: true };
 };
@@ -104,7 +114,8 @@ export const validateUserName = (name: string): ValidationResult => {
     return { isValid: false, error: 'Name cannot be empty' };
   }
 
-  const trimmed = name.trim();
+  const sanitizedName = sanitizeString(name);
+  const trimmed = sanitizedName.trim();
   if (trimmed.length === 0) {
     return { isValid: false, error: 'Name cannot be empty' };
   }
@@ -123,5 +134,10 @@ export const validateUserName = (name: string): ValidationResult => {
 };
 
 export const sanitizeString = (input: string): string => {
-  return input.trim().replace(/[<>]/g, ''); // Remove potential XSS characters
+  if (typeof input !== 'string') return ''; // Handle non-string inputs gracefully
+  // More robust sanitization would involve a library like DOMPurify or a proper HTML escaping function.
+  // This is a basic example.
+  const tempDiv = document.createElement('div');
+  tempDiv.textContent = input;
+  return tempDiv.innerHTML;
 };

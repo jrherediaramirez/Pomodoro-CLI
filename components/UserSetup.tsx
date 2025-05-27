@@ -9,6 +9,9 @@ interface UseUserSetupProps {
   outputLines: any[];
 }
 
+// Helper function for delays
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const useUserSetup = ({
   addOutput,
   outputLines
@@ -37,27 +40,22 @@ export const useUserSetup = ({
         setIsInitializing(true);
         hasInitialized.current = true; // Mark as initialized immediately
         
-        // Show welcome sequence only once
         addOutput("🍅 Pomodoro CLI - Terminal Initializing...", 'system');
+        await delay(800); // Use await for delay
         
-        // Add a small delay for effect
-        setTimeout(() => {
-          addOutput(`Welcome back, ${user.firstName}!`, 'system');
-          addOutput("Your productivity workspace is ready.", 'system');
-          addOutput("Type '/help' to see available commands or '/play' to start a timer.", 'system');
-          
-          // Show user info
-          setTimeout(() => {
-            addOutput(
-              <div style={{ marginTop: '10px', color: 'var(--dracula-cyan)' }}>
-                <div>[USER] {user.firstName} {user.lastName}</div>
-                <div>[EMAIL] {user.email}</div>
-                <div>[STATUS] Authenticated & Ready</div>
-              </div>,
-              'system'
-            );
-          }, 500);
-        }, 800);
+        addOutput(`Welcome back, ${user.firstName}!`, 'system');
+        addOutput("Your productivity workspace is ready.", 'system');
+        addOutput("Type '/help' to see available commands or '/play' to start a timer.", 'system');
+        
+        await delay(500); // Use await for delay
+        addOutput(
+          <div style={{ marginTop: '10px', color: 'var(--dracula-cyan)' }}>
+            <div>[USER] {user.firstName} {user.lastName}</div>
+            <div>[EMAIL] {user.email}</div>
+            <div>[STATUS] Authenticated & Ready</div>
+          </div>,
+          'system'
+        );
 
         // Ensure user data exists in Firestore
         try {
@@ -227,71 +225,4 @@ export const UserWelcome: React.FC<UserWelcomeProps> = ({ user, onComplete }) =>
       `}</style>
     </div>
   );
-};
-
-// Optional: Migration component for existing localStorage users
-export const UserMigration: React.FC<{
-  onComplete: () => void;
-  addOutput: (content: React.ReactNode, type?: string) => void;
-}> = ({ onComplete, addOutput }) => {
-  const { user } = useAuth();
-  const [isMigrating, setIsMigrating] = useState(false);
-  useEffect(() => {
-    const migrateLocalStorageData = async () => {
-      if (!user || isMigrating) return;
-
-      try {
-        setIsMigrating(true);
-        
-        // Check for existing localStorage data
-        const oldSettings = localStorage.getItem('pomodoroCliSettings');
-        const oldStats = localStorage.getItem('pomodoroCliStats');
-        
-        if (oldSettings || oldStats) {
-          addOutput("🔄 Migrating your local data to the cloud...", 'system');
-          
-          // Here you could implement migration logic
-          // For now, we'll just acknowledge the data exists
-          addOutput("✅ Local data detected. Syncing with your account...", 'system');
-          
-          // Clear old localStorage data after successful migration
-          localStorage.removeItem('pomodoroCliUser');
-          localStorage.removeItem('pomodoroCliSettings');
-          localStorage.removeItem('pomodoroCliStats');
-          
-          addOutput("🗑️ Local storage cleared. All data is now stored securely in the cloud.", 'system');
-        }
-        
-        onComplete();
-      } catch (error) {
-        console.error('Migration failed:', error);
-        addOutput("⚠️ Data migration failed, but you can continue using the app.", 'error');
-        onComplete();
-      } finally {
-        setIsMigrating(false);
-      }
-    };
-
-    migrateLocalStorageData();
-  }, [user, onComplete, addOutput]); // Stable dependencies - removed isMigrating to avoid loops
-
-  if (isMigrating) {
-    return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '200px'
-      }}>
-        <EnhancedLoader 
-          isActive={true} 
-          variant="progress" 
-          message="Migrating your data..."
-        />
-      </div>
-    );
-  }
-
-  return null;
 };

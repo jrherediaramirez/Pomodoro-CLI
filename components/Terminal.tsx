@@ -11,6 +11,7 @@ import { useUserSetup } from './UserSetup';
 import { useCommandAutoComplete } from '@/hooks/useCommandAutoComplete';
 import { CommandProcessor } from './CommandProcessor';
 import ErrorBoundary from './ErrorBoundary';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus'; // Import the new hook
 import { 
   TerminalLine, 
   TerminalProps,
@@ -19,6 +20,7 @@ import {
 
 const Terminal: React.FC<TerminalProps> = ({ className = '' }) => {
   const { user, signOut } = useAuth();
+  const { isOnline, showOfflineMessage } = useNetworkStatus(); // Use the hook
   
   // State management
   const [outputLines, setOutputLines] = useState<TerminalLine[]>([]);
@@ -305,6 +307,8 @@ const Terminal: React.FC<TerminalProps> = ({ className = '' }) => {
 
   return (
     <ErrorBoundary>
+      {/* Network Status Indicator - Placed inside ErrorBoundary, before the main div */}
+      <NetworkStatusIndicator isOnline={isOnline} showMessage={showOfflineMessage} />
       <div 
         className={className}
         style={{ 
@@ -443,6 +447,34 @@ const Terminal: React.FC<TerminalProps> = ({ className = '' }) => {
         )}
       </div>
     </ErrorBoundary>
+  );
+};
+
+// Network Status Indicator Component (can be in the same file or separate)
+const NetworkStatusIndicator: React.FC<{ isOnline: boolean; showMessage: boolean }> = ({ 
+  isOnline, 
+  showMessage 
+}) => {
+  // Only show the message if showMessage is true (controlled by useNetworkStatus)
+  if (!showMessage) return null;
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: '10px',
+      right: '10px',
+      padding: '8px 12px',
+      background: isOnline ? 'var(--dracula-green)' : 'var(--dracula-orange)',
+      color: 'var(--dracula-background)', // Changed to ensure contrast
+      borderRadius: '4px',
+      fontSize: '12px',
+      fontWeight: 'bold',
+      zIndex: 2000, // Ensure it's above other elements
+      transition: 'all 0.3s ease',
+      boxShadow: '0 2px 10px rgba(0,0,0,0.2)' // Added a subtle shadow
+    }}>
+      {isOnline ? '🌐 Back Online' : '📱 Offline Mode'}
+    </div>
   );
 };
 

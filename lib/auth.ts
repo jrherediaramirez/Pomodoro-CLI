@@ -35,7 +35,11 @@ export const authService = {
         lastName
       };
     } catch (error) {
-      throw new Error(`Sign up failed: ${error.message}`);
+      if (error instanceof Error) {
+        throw new Error(`Sign up failed: ${error.message}`);
+      } else {
+        throw new Error('Sign up failed: Unknown error');
+      }
     }
   },
 
@@ -56,7 +60,11 @@ export const authService = {
         lastName
       };
     } catch (error) {
-      throw new Error(`Sign in failed: ${error.message}`);
+      if (error instanceof Error) {
+        throw new Error(`Sign in failed: ${error.message}`);
+      } else {
+        throw new Error('Sign in failed: Unknown error');
+      }
     }
   },
 
@@ -65,7 +73,11 @@ export const authService = {
     try {
       await signOut(auth);
     } catch (error) {
-      throw new Error(`Sign out failed: ${error.message}`);
+      if (error instanceof Error) {
+        throw new Error(`Sign out failed: ${error.message}`);
+      } else {
+        throw new Error('Sign out failed: Unknown error');
+      }
     }
   },
 
