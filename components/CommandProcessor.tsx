@@ -1,7 +1,7 @@
-// components/CommandProcessor.tsx - Updated for Firebase
+// components/CommandProcessor.tsx - Updated with secure Firestore service
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { firestoreService } from '@/lib/firestore';
+import { secureFirestoreService } from '@/lib/firestore';
 import { CommandResult, CommandContext } from '@/types';
 import { 
   validateCommand, 
@@ -10,9 +10,11 @@ import {
   validateCommitMessage, 
   validateTheme, 
   validateSound,
-  sanitizeString 
+  sanitizeString,
+  commandRateLimiter
 } from '@/lib/validation';
 import EnhancedLoader from './EnhancedLoader';
+import { securityLogger } from '@/lib/security';
 
 export class CommandProcessor {
   private context: CommandContext;
@@ -22,8 +24,19 @@ export class CommandProcessor {
   }
 
   async processCommand(commandStr: string): Promise<CommandResult> {
-    const { addOutput, pomodoroInstance } = this.context;
+    const { addOutput, pomodoroInstance, userInfo } = this.context;
     
+    // Rate limiting check
+    if (userInfo && !commandRateLimiter.isAllowed(`command:${userInfo.uid}`)) {
+      addOutput(
+        <span style={{color: 'var(--dracula-red)'}}>
+          [ERROR] Too many commands. Please wait before trying again.
+        </span>, 
+        'error'
+      );
+      return { success: false, error: 'Rate limited' };
+    }
+
     // Add command to output with enhanced styling
     addOutput(
       <span>
@@ -36,6 +49,11 @@ export class CommandProcessor {
     const commandValidation = validateCommand(commandStr);
     if (!commandValidation.isValid) {
       addOutput(commandValidation.error!, 'error');
+      securityLogger.log({
+        type: 'invalid_input',
+        userId: userInfo?.uid,
+        details: `Invalid command: ${commandStr}`
+      });
       return { success: false, error: commandValidation.error };
     }
 
@@ -64,7 +82,8 @@ export class CommandProcessor {
         
         case '/session':
           return this.handleSessionCommand(argString);
-          case '/theme':
+          
+        case '/theme':
           return this.handleThemeCommand(args[0]);
         
         case '/sound':
@@ -88,7 +107,7 @@ export class CommandProcessor {
         case '/confirm-reset':
           return this.handleConfirmResetCommand();
         
-        case '/sync': // Add new sync command
+        case '/sync':
           return this.handleSyncCommand();
         
         default:
@@ -109,9 +128,15 @@ export class CommandProcessor {
         </span>, 
         'error'
       );
+      securityLogger.log({
+        type: 'unauthorized_access',
+        userId: userInfo?.uid,
+        details: `Command execution error: ${errorMsg}`
+      });
       return { success: false, error: errorMsg };
     }
   }
+
   private handleLogoutCommand(): CommandResult {
     const { addOutput, signOut } = this.context;
     
@@ -122,11 +147,9 @@ export class CommandProcessor {
       'system'
     );
 
-    // Use a timeout to allow the message to appear before logout
     setTimeout(async () => {
       try {
         await signOut();
-        // Redirect will happen automatically via AuthProvider
       } catch (error) {
         console.error('Logout failed:', error);
         addOutput(
@@ -386,10 +409,11 @@ export class CommandProcessor {
         {message}
       </span>, 
       'output'
-    );    return { success: true, message };
+    );
+    return { success: true, message };
   }
 
-  private async handleStatsCommand(): Promise<CommandResult> { // Make async
+  private async handleStatsCommand(): Promise<CommandResult> {
     const { addOutput, pomodoroInstance, userInfo } = this.context;
     
     // Show loading indicator
@@ -403,22 +427,11 @@ export class CommandProcessor {
     
     try {
       // Fetch fresh session history from Firestore
-      // This assumes firestoreService.getSessionHistory is an async function
-      // and that pomodoroInstance.stats.history will be updated by it or another mechanism.
-      // For now, we'll simulate a delay and use existing history.
-      // In a real scenario, you would fetch and then update pomodoroInstance.stats.history
       if (userInfo?.uid) {
-        const sessionHistory = await firestoreService.getSessionHistory(userInfo.uid, 10);
-        // Assuming pomodoroInstance can be updated with this history
-        // pomodoroInstance.updateStats({ history: sessionHistory }); 
-        // For now, we'll just log it or use it directly if the structure matches
+        const sessionHistory = await secureFirestoreService.getSessionHistory(userInfo.uid, 10);
       }
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
 
-      // Clear the loading message (by adding a new message that overwrites or pushes it)
-      // Or, if your addOutput can clear previous lines, use that.
-      // For this example, we'll just add the stats output after the loader.
-      
       addOutput(
         <div style={{color: 'var(--dracula-cyan)'}}>
           [STATS] <strong>Statistics</strong>
@@ -438,7 +451,8 @@ export class CommandProcessor {
         'output'
       );
       
-      addOutput(      <div style={{marginLeft: '10px', marginTop: '10px'}}>
+      addOutput(
+        <div style={{marginLeft: '10px', marginTop: '10px'}}>
           <div>[SETTINGS] Settings:</div>
           <div style={{marginLeft: '10px', fontSize: '12px', color: 'var(--dracula-comment)'}}>
             [SOUND] Sound: {pomodoroInstance.settings.soundEnabled ? 'On' : 'Off'} | 
@@ -448,8 +462,6 @@ export class CommandProcessor {
         'output'
       );
       
-      // Display actual fetched history if available and different from pomodoroInstance.stats.history
-      // This part needs to be adapted based on how you want to display fetched history vs local
       if (pomodoroInstance.stats.history.length > 0) {
         addOutput(
           <div style={{marginTop: '10px', color: 'var(--dracula-purple)'}}>
@@ -508,6 +520,7 @@ export class CommandProcessor {
           <div><strong style={{color: 'var(--dracula-cyan)'}}>/clear</strong> - Clear terminal output</div>
           <div><strong style={{color: 'var(--dracula-cyan)'}}>/logout</strong> - Sign out of your account</div>
           <div><strong style={{color: 'var(--dracula-cyan)'}}>/reset-data</strong> - Reset all saved data (requires confirmation)</div>
+          <div><strong style={{color: 'var(--dracula-cyan)'}}>/sync</strong> - Manually sync data with server</div>
           <div><strong style={{color: 'var(--dracula-cyan)'}}>/help</strong> - Show this help message</div>
         </div>
         <div style={{marginTop: '15px', fontSize: '12px', color: 'var(--dracula-comment)'}}>
@@ -571,7 +584,6 @@ export class CommandProcessor {
         'system'
       );
       
-      // Small delay for UX
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       addOutput(
@@ -585,7 +597,7 @@ export class CommandProcessor {
       );
       
       // Delete user data from Firestore
-      await firestoreService.deleteUserData(userInfo.uid);
+      await secureFirestoreService.deleteUserData(userInfo.uid);
       
       addOutput(
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -606,17 +618,16 @@ export class CommandProcessor {
         'output'
       );
       
-      addOutput( // Added from existing code, was missing in patch
+      addOutput(
         <span style={{color: 'var(--dracula-cyan)'}}>
           [INFO] Please refresh the page to reinitialize your workspace.
         </span>, 
         'system'
       );
 
-      // Auto-refresh after delay
       setTimeout(() => {
         window.location.reload();
-      }, 2000); // Adjusted delay from 3000 to 2000 as per patch
+      }, 2000);
       
       return { success: true, message: 'Data reset completed' };
       
@@ -632,11 +643,9 @@ export class CommandProcessor {
   }
 
   private handleClearCommand(): CommandResult {
-    // This will be handled by the Terminal component directly
     return { success: true, message: 'Clear command' };
   }
 
-  // New command: /sync - manually sync data with server
   private async handleSyncCommand(): Promise<CommandResult> {
     const { addOutput, userInfo, pomodoroInstance } = this.context;
     
@@ -656,19 +665,10 @@ export class CommandProcessor {
     );
 
     try {
-      // Force refresh user data
-      // This assumes firestoreService.getUserData fetches fresh data
-      // and that pomodoroInstance might be updated based on this.
-      const userData = await firestoreService.getUserData(userInfo.uid);
-      
-      // Simulate updating local state if necessary
-      // if (userData && pomodoroInstance.updateSettings) {
-      //   pomodoroInstance.updateSettings(userData.settings); 
-      // }
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      const userData = await secureFirestoreService.getUserData(userInfo.uid);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-
-      if (userData) { // Check if userData was fetched
+      if (userData) {
         addOutput(
           <span style={{color: 'var(--dracula-green)'}}>
             [SYNC] ✓ Settings synchronized
@@ -676,9 +676,7 @@ export class CommandProcessor {
           'system'
         );
         
-        // Simulate fetching/syncing stats
-        const sessionHistory = await firestoreService.getSessionHistory(userInfo.uid, 10);
-        // pomodoroInstance.updateStats({ history: sessionHistory });
+        const sessionHistory = await secureFirestoreService.getSessionHistory(userInfo.uid, 10);
 
         addOutput(
           <span style={{color: 'var(--dracula-green)'}}>

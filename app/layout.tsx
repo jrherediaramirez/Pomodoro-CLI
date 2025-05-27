@@ -1,4 +1,5 @@
 // app/layout.tsx - Updated with AuthProvider
+
 import "../styles/globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import ErrorBoundary from "@/components/ErrorBoundary";

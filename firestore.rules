@@ -1,0 +1,95 @@
+// firestore.rules - Add this to your Firebase project
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {    // Users can only access their own data
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null 
+        && request.auth.uid == userId
+        && isValidUserDataForCreate();
+      allow update: if request.auth != null 
+        && request.auth.uid == userId
+        && isValidUserDataForUpdate();
+      allow delete: if request.auth != null && request.auth.uid == userId;
+      
+      // User sessions subcollection
+      match /sessions/{sessionId} {
+        allow read, write: if request.auth != null 
+          && request.auth.uid == userId
+          && isValidSessionData();
+      }
+    }
+    
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+      // Validation functions
+    function isValidUserDataForCreate() {
+      return request.resource.data.keys().hasAll(['uid', 'email', 'firstName', 'lastName', 'settings', 'stats', 'createdAt', 'updatedAt', 'lastActivity'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.firstName is string
+        && request.resource.data.lastName is string
+        && request.resource.data.firstName.size() > 0
+        && request.resource.data.firstName.size() <= 50
+        && request.resource.data.lastName.size() > 0
+        && request.resource.data.lastName.size() <= 50
+        && isValidSettings(request.resource.data.settings)
+        && isValidStats(request.resource.data.stats);
+    }
+    
+    function isValidUserDataForUpdate() {
+      return request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && (!request.resource.data.keys().hasAny(['firstName', 'lastName']) 
+            || (request.resource.data.firstName is string
+                && request.resource.data.lastName is string
+                && request.resource.data.firstName.size() > 0
+                && request.resource.data.firstName.size() <= 50
+                && request.resource.data.lastName.size() > 0
+                && request.resource.data.lastName.size() <= 50))
+        && (!request.resource.data.keys().hasAny(['settings']) || isValidSettings(request.resource.data.settings))
+        && (!request.resource.data.keys().hasAny(['stats']) || isValidStats(request.resource.data.stats));
+    }
+      function isValidSettings(settings) {
+      return settings.keys().hasAll(['workDuration', 'breakDuration', 'longBreakDuration', 'theme', 'soundEnabled', 'sessionName'])
+        && settings.workDuration is number
+        && settings.breakDuration is number
+        && settings.longBreakDuration is number
+        && settings.workDuration > 0
+        && settings.workDuration <= 7200 // Max 2 hours
+        && settings.breakDuration > 0
+        && settings.breakDuration <= 3600 // Max 1 hour
+        && settings.longBreakDuration > 0
+        && settings.longBreakDuration <= 3600
+        && settings.theme in ['light', 'dark']
+        && settings.soundEnabled is bool
+        && settings.sessionName is string
+        && settings.sessionName.size() <= 100;
+    }
+      function isValidStats(stats) {
+      return stats.keys().hasAll(['completedToday', 'history', 'totalFocusTime', 'longestStreak', 'currentStreak'])
+        && stats.completedToday is number
+        && stats.completedToday >= 0
+        && stats.completedToday <= 1000 // Reasonable daily limit
+        && stats.history is list
+        && stats.history.size() <= 100 // Limit history size
+        && stats.totalFocusTime is number
+        && stats.totalFocusTime >= 0
+        && stats.longestStreak is number
+        && stats.longestStreak >= 0
+        && stats.currentStreak is number
+        && stats.currentStreak >= 0;
+    }
+      function isValidSessionData() {
+      return request.resource.data.keys().hasAll(['sessionName', 'isBreak', 'timestamp', 'durationMinutes'])
+        && request.resource.data.sessionName is string
+        && request.resource.data.sessionName.size() <= 100
+        && request.resource.data.isBreak is bool
+        && request.resource.data.durationMinutes is number
+        && request.resource.data.durationMinutes > 0
+        && request.resource.data.durationMinutes <= 480; // Max 8 hours
+    }
+  }
+}

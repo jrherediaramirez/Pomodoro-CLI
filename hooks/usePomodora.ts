@@ -1,4 +1,4 @@
-// hooks/usePomodoro.ts - Updated with Firestore integration
+// hooks/usePomodoro.ts - Improved with better state management and error handling
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { firestoreService, FirestoreUserData } from '@/lib/firestore';
@@ -32,6 +32,7 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
   const [stats, setStats] = useState<PomodoroStats>(initialStats);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
   
   const [currentTime, setCurrentTime] = useState(settings.workDuration);
   const [totalTime, setTotalTime] = useState(settings.workDuration);
@@ -42,115 +43,134 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const isInitializedRef = useRef(false);
 
-  // Load user data from Firestore
-  const loadUserData = useCallback(async () => {
-    if (!user) {
-      setIsLoading(false);
-      return;
+  // Cleanup function
+  const cleanup = useCallback(() => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
     }
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+  }, []);
+
+  // Initialize audio - client-side only
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      audioRef.current = new Audio(CHIME_SOUND_BASE64);
+      audioRef.current.preload = 'auto';
+    }
+    return cleanup;
+  }, [cleanup]);
+
+  // Enhanced save with optimistic updates and rollback
+  const saveSettings = useCallback(async (newSettings: PomodoroSettings, rollbackSettings?: PomodoroSettings) => {
+    if (!user) return false;
 
     try {
-      setIsLoading(true);
-      
-      // Get or create user data
-      const userData = await firestoreService.getOrCreateUserData({
-        uid: user.uid,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName
-      });
-
-      if (userData) {
-        setSettings(userData.settings);
-        setStats(userData.stats);
-        setIsDataLoaded(true);
-      }
+      setSaveError(null);
+      await firestoreService.updateUserSettings(user.uid, newSettings);
+      return true;
     } catch (error) {
-      console.error('Failed to load user data:', error);
-      // Fallback to default values on error
-      setSettings(initialSettings);
-      setStats(initialStats);
-    } finally {
-      setIsLoading(false);
+      console.error('Failed to save settings:', error);
+      setSaveError('Failed to save settings');
+      
+      // Rollback on failure
+      if (rollbackSettings) {
+        setSettings(rollbackSettings);
+      }
+      return false;
     }
   }, [user]);
 
-  // Subscribe to real-time updates
+  const saveStats = useCallback(async (newStats: PomodoroStats, rollbackStats?: PomodoroStats) => {
+    if (!user) return false;
+
+    try {
+      setSaveError(null);
+      await firestoreService.updateUserStats(user.uid, newStats);
+      return true;
+    } catch (error) {
+      console.error('Failed to save stats:', error);
+      setSaveError('Failed to save stats');
+      
+      // Rollback on failure
+      if (rollbackStats) {
+        setStats(rollbackStats);
+      }
+      return false;
+    }
+  }, [user]);
+
+  // Initialize user data and subscription
   useEffect(() => {
     if (!user) {
-      // Clean up subscription if user logs out
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
+      // Reset everything when user logs out
+      cleanup();
       setSettings(initialSettings);
       setStats(initialStats);
       setIsDataLoaded(false);
       setIsLoading(false);
+      isInitializedRef.current = false;
       return;
     }
 
-    // Subscribe to real-time user data updates
-    const unsubscribe = firestoreService.subscribeToUserData(user.uid, (userData) => {
-      if (userData) {
-        setSettings(userData.settings);
-        setStats(userData.stats);
-        setIsDataLoaded(true);
-      }
-      setIsLoading(false);
-    });
+    if (isInitializedRef.current) return; // Prevent duplicate initialization
+    isInitializedRef.current = true;
 
-    unsubscribeRef.current = unsubscribe;
+    const initializeUserData = async () => {
+      try {
+        setIsLoading(true);
+        setSaveError(null);
 
-    // Initial load if not already loaded
-    if (!isDataLoaded) {
-      loadUserData();
-    }
+        // Subscribe to real-time updates first
+        const unsubscribe = firestoreService.subscribeToUserData(user.uid, (userData) => {
+          if (userData) {
+            setSettings(userData.settings);
+            setStats(userData.stats);
+            setIsDataLoaded(true);
+          } else {
+            // User data doesn't exist, create it
+            firestoreService.getOrCreateUserData({
+              uid: user.uid,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName
+            }).catch(error => {
+              console.error('Failed to create user data:', error);
+              setSaveError('Failed to initialize user data');
+            });
+          }
+          setIsLoading(false);
+        });
 
-    return () => {
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
+        unsubscribeRef.current = unsubscribe;
+
+      } catch (error) {
+        console.error('Failed to initialize user data:', error);
+        setSaveError('Failed to load user data');
+        setIsLoading(false);
+        // Fallback to default values
+        setSettings(initialSettings);
+        setStats(initialStats);
       }
     };
-  }, [user, loadUserData, isDataLoaded]);
 
-  // Save settings to Firestore
-  const saveSettings = useCallback(async (newSettings: PomodoroSettings) => {
-    if (!user) return;
+    initializeUserData();
 
-    try {
-      await firestoreService.updateUserSettings(user.uid, newSettings);
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-      // Note: Real-time listener will revert changes if save fails
-    }
-  }, [user]);
+    return cleanup;
+  }, [user, cleanup]);
 
-  // Save stats to Firestore
-  const saveStats = useCallback(async (newStats: PomodoroStats) => {
-    if (!user) return;
-
-    try {
-      await firestoreService.updateUserStats(user.uid, newStats);
-    } catch (error) {
-      console.error('Failed to save stats:', error);
-      // Note: Real-time listener will revert changes if save fails
-    }
-  }, [user]);
-
-  // Initialize audio
+  // Apply theme and update timer when settings change
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      audioRef.current = new Audio(CHIME_SOUND_BASE64);
+      document.body.classList.toggle('light-theme', settings.theme === 'light');
     }
-  }, []);
-
-  // Apply theme and reset timer when settings change
-  useEffect(() => {
-    document.body.classList.toggle('light-theme', settings.theme === 'light');
     
+    // Reset timer when settings change (but not while running)
     if (!isRunning) {
       const newCurrentTime = isBreak 
         ? (pomodoroCount > 0 && pomodoroCount % 4 === 0 ? settings.longBreakDuration : settings.breakDuration)
@@ -162,10 +182,14 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
 
   const playChime = useCallback(() => {
     if (settings.soundEnabled && audioRef.current) {
-      audioRef.current.play().catch(err => console.error("Error playing chime:", err));
+      audioRef.current.play().catch(err => 
+        console.warn("Could not play chime (this is normal if user hasn't interacted with page):", err)
+      );
     }
   }, [settings.soundEnabled]);
+
   const updateStats = useCallback(async (type: 'work' | 'break') => {
+    const oldStats = stats;
     const newStats = { ...stats };
     
     if (type === 'work') {
@@ -175,7 +199,7 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
       newStats.longestStreak = Math.max(newStats.longestStreak, newStats.currentStreak);
     }
 
-    // Add to history
+    // Add to history (local cache)
     const sessionData: PomodoroSessionData = {
       sessionName: settings.sessionName,
       isBreak: type === 'break',
@@ -186,20 +210,25 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
     
     newStats.history = [...newStats.history, sessionData].slice(-50);
     
+    // Optimistic update
     setStats(newStats);
-    await saveStats(newStats);
     
-    // Also save to session history collection
-    if (user) {
+    // Save to Firestore
+    const success = await saveStats(newStats, oldStats);
+    
+    // Save session to history collection (separate operation)
+    if (user && success) {
       try {
         await firestoreService.addSessionToHistory(user.uid, sessionData);
       } catch (error) {
         console.error('Failed to add session to history:', error);
+        // Don't rollback stats for this secondary operation failure
       }
     }
   }, [stats, settings, pomodoroCount, saveStats, user]);
 
-  const onTimerComplete = useCallback(() => {
+  // Memoized timer completion handler to prevent recreation
+  const handleTimerComplete = useCallback(() => {
     playChime();
     setIsRunning(false);
     
@@ -209,8 +238,10 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
       updateStats('work');
       setPomodoroCount(prev => prev + 1);
       
+      // Calculate next session
       let nextDuration;
-      let nextSessionName;      if ((pomodoroCount + 1) % 4 === 0) {
+      let nextSessionName;
+      if ((pomodoroCount + 1) % 4 === 0) {
         nextDuration = settings.longBreakDuration;
         nextSessionName = "Long Break";
       } else {
@@ -218,23 +249,32 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
         nextSessionName = "Short Break";
       }
       
-      const newSettings = { ...settings, sessionName: nextSessionName };
-      setSettings(newSettings);
-      saveSettings(newSettings);
-        setCurrentTime(nextDuration);
+      // Update state immediately
+      setCurrentTime(nextDuration);
       setTotalTime(nextDuration);
       setIsBreak(true);
+      
+      // Update settings with optimistic update
+      const oldSettings = settings;
+      const newSettings = { ...settings, sessionName: nextSessionName };
+      setSettings(newSettings);
+      saveSettings(newSettings, oldSettings);
+      
       completedType = 'work';
     } else {
       updateStats('break');
+      
+      // Switch back to work session
       setCurrentTime(settings.workDuration);
       setTotalTime(settings.workDuration);
+      setIsBreak(false);
       
+      // Update settings with optimistic update
+      const oldSettings = settings;
       const newSettings = { ...settings, sessionName: "Focus Session" };
       setSettings(newSettings);
-      saveSettings(newSettings);
+      saveSettings(newSettings, oldSettings);
       
-      setIsBreak(false);
       completedType = 'break';
     }
 
@@ -251,12 +291,14 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
 
   // Timer interval effect
   useEffect(() => {
-    if (isRunning) {
+    if (isRunning && currentTime > 0) {
       timerIntervalRef.current = setInterval(() => {
         setCurrentTime(prevTime => {
           if (prevTime <= 1) {
             clearInterval(timerIntervalRef.current!);
-            onTimerComplete();
+            timerIntervalRef.current = null;
+            // Use setTimeout to avoid calling during render
+            setTimeout(handleTimerComplete, 0);
             return 0;
           }
           return prevTime - 1;
@@ -265,14 +307,17 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
     } else {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
     }
+
     return () => {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
     };
-  }, [isRunning, onTimerComplete]);
+  }, [isRunning, currentTime, handleTimerComplete]);
 
   // Timer control functions
   const startTimer = useCallback(() => {
@@ -286,7 +331,9 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
     setIsRunning(true);
   }, [currentTime, isBreak, pomodoroCount, settings]);
 
-  const pauseTimer = useCallback(() => setIsRunning(false), []);
+  const pauseTimer = useCallback(() => {
+    setIsRunning(false);
+  }, []);
 
   const resetTimer = useCallback(() => {
     setIsRunning(false);
@@ -299,9 +346,10 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
 
   const completeTimer = useCallback(() => {
     if (!isRunning && currentTime === totalTime) {
-      return false;
+      return false; // Timer hasn't started
     }
-      if (isRunning) {
+    
+    if (isRunning) {
       pauseTimer();
     }
     
@@ -310,9 +358,10 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
     
     resetTimer();
     return true;
-  }, [isRunning, currentTime, totalTime, isBreak, pauseTimer, updateStats, resetTimer, settings]);
+  }, [isRunning, currentTime, totalTime, isBreak, pauseTimer, updateStats, resetTimer]);
 
   const setDurations = useCallback(async (durations: { work?: number, break?: number, long?: number }) => {
+    const oldSettings = settings;
     const newSettings = {
       ...settings,
       workDuration: durations.work ? durations.work * 60 : settings.workDuration,
@@ -320,35 +369,45 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
       longBreakDuration: durations.long ? durations.long * 60 : settings.longBreakDuration,
     };
     
+    // Optimistic update
     setSettings(newSettings);
-    await saveSettings(newSettings);
+    await saveSettings(newSettings, oldSettings);
     
+    // Reset timer if not running
     if (!isRunning) {
-      resetTimer();
+      const newTime = isBreak 
+        ? (pomodoroCount > 0 && pomodoroCount % 4 === 0 ? newSettings.longBreakDuration : newSettings.breakDuration)
+        : newSettings.workDuration;
+      setCurrentTime(newTime);
+      setTotalTime(newTime);
     }
-  }, [settings, saveSettings, isRunning, resetTimer]);
+  }, [settings, saveSettings, isRunning, isBreak, pomodoroCount]);
 
   const updateSessionName = useCallback(async (name: string) => {
+    const oldSettings = settings;
     const newSettings = { ...settings, sessionName: name };
     setSettings(newSettings);
-    await saveSettings(newSettings);
+    await saveSettings(newSettings, oldSettings);
   }, [settings, saveSettings]);
 
   const toggleTheme = useCallback(async (newTheme?: Theme) => {
+    const oldSettings = settings;
     const newSettings = { 
       ...settings, 
       theme: newTheme || (settings.theme === 'dark' ? 'light' : 'dark') 
     };
     setSettings(newSettings);
-    await saveSettings(newSettings);
+    await saveSettings(newSettings, oldSettings);
   }, [settings, saveSettings]);
-    const toggleSound = useCallback(async (enable?: boolean) => {
+
+  const toggleSound = useCallback(async (enable?: boolean) => {
+    const oldSettings = settings;
     const newSettings = { 
       ...settings, 
       soundEnabled: enable === undefined ? !settings.soundEnabled : enable 
     };
     setSettings(newSettings);
-    await saveSettings(newSettings);
+    await saveSettings(newSettings, oldSettings);
   }, [settings, saveSettings]);
 
   const commitSession = useCallback(async (message: string) => {
@@ -360,11 +419,16 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
       commitMessage: message,
     };
     
-    const newStats = { ...stats, history: [...stats.history, sessionData] };
+    // Add to local history
+    const oldStats = stats;
+    const newStats = { ...stats, history: [...stats.history, sessionData].slice(-50) };
     setStats(newStats);
-    await saveStats(newStats);
     
-    if (user) {
+    // Save to Firestore
+    const success = await saveStats(newStats, oldStats);
+    
+    // Save to session history collection
+    if (user && success) {
       try {
         await firestoreService.addSessionToHistory(user.uid, sessionData);
       } catch (error) {
@@ -373,23 +437,41 @@ export const usePomodoro = (onTimerCompleteCallback?: (type: 'work' | 'break') =
     }
   }, [settings, isBreak, totalTime, currentTime, stats, saveStats, user]);
 
+  const clearSaveError = useCallback(() => {
+    setSaveError(null);
+  }, []);
+
   return {
+    // Timer state
     currentTime,
     totalTime,
     isRunning,
     isBreak,
+    pomodoroCount,
+    
+    // Data state
     settings,
     stats,
     isLoading,
-    isDataLoaded,    startTimer,
+    isDataLoaded,
+    saveError,
+    
+    // Timer controls
+    startTimer,
     pauseTimer,
     resetTimer,
     completeTimer,
+    
+    // Settings controls
     setDurations,
     updateSessionName,
     toggleTheme,
     toggleSound,
+    
+    // Session controls
     commitSession,
-    pomodoroCount
+    
+    // Error handling
+    clearSaveError,
   };
 };
