@@ -1,0 +1,177 @@
+/* Import IBM Plex Mono from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap');
+
+@import "tailwindcss";
+
+/* Add this to your styles/globals.css */
+
+
+:root {
+    /* Dracula Theme Colors */
+    --dracula-background: #282A36;
+    --dracula-current-line: #44475A;
+    --dracula-foreground: #F8F8F2;
+    --dracula-comment: #6272A4;
+    --dracula-cyan: #8BE9FD;
+    --dracula-green: #50FA7B;
+    --dracula-orange: #FFB86C;
+    --dracula-pink: #FF79C6;
+    --dracula-purple: #BD93F9;
+    --dracula-red: #FF5555;
+    --dracula-yellow: #F1FA8C;
+
+    /* IBM Plex Mono Font Stack */
+    --font-family-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+
+    /* Theme variables */
+    --bg-dark: var(--dracula-background);
+    --bg-light: var(--dracula-foreground);
+    --text-dark: var(--dracula-foreground);
+    --text-light: var(--dracula-background);
+    
+    --accent: var(--dracula-purple);
+    --success: var(--dracula-green);
+    --warning: var(--dracula-orange);
+    --error: var(--dracula-red);
+    --secondary: var(--dracula-comment);
+
+    /* Default to dark theme */
+    --bg-current: var(--bg-dark);
+    --text-current: var(--text-dark);
+    --text-secondary-current: var(--secondary);
+    
+    /* Input and Terminal styles for dark theme */
+    --input-bg-current: var(--dracula-current-line);
+    --input-bg-hover-current: rgba(68, 71, 90, 0.7);
+    --terminal-bg-current: rgba(40, 42, 54, 0.8);
+    --terminal-border-current: var(--dracula-current-line);
+    --scrollbar-track-current: rgba(68, 71, 90, 0.3);
+    --scrollbar-thumb-current: rgba(98, 114, 164, 0.5);
+    --scrollbar-thumb-hover-current: rgba(98, 114, 164, 0.7);
+}
+
+body.light-theme {
+    --bg-current: var(--bg-light);
+    --text-current: var(--text-light);
+    --text-secondary-current: var(--dracula-comment);
+
+    /* Input and Terminal styles for light theme */
+    --input-bg-current: rgba(40, 42, 54, 0.05);
+    --input-bg-hover-current: rgba(40, 42, 54, 0.1);
+    --terminal-bg-current: rgba(248, 248, 242, 0.9);
+    --terminal-border-current: rgba(40, 42, 54, 0.1);
+    --scrollbar-track-current: rgba(40, 42, 54, 0.05);
+    --scrollbar-thumb-current: rgba(40, 42, 54, 0.2);
+    --scrollbar-thumb-hover-current: rgba(40, 42, 54, 0.3);
+
+    /* Accent colors remain Dracula colors for contrast */
+    --accent: var(--dracula-purple);
+    --success: var(--dracula-green);
+    --warning: var(--dracula-orange);
+    --error: var(--dracula-red);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-family-mono);
+    background: var(--bg-current);
+    color: var(--text-current);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: background 0.3s ease, color 0.3s ease;
+    
+    /* IBM Plex Mono optimized settings */
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.4;
+    font-feature-settings: "liga" 0; /* Disable ligatures for terminal feel */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Terminal-specific styling for IBM Plex Mono */
+.terminal-content {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.4;
+    letter-spacing: 0.025em; /* Slight spacing for better readability */
+}
+
+/* Enhanced readability for different text types */
+.terminal-input {
+    font-weight: 500; /* Slightly bolder for input */
+}
+
+.terminal-output {
+    font-weight: 400;
+}
+
+.terminal-error {
+    font-weight: 500;
+}
+
+.terminal-help {
+    font-weight: 300; /* Lighter for help text */
+}
+
+.terminal-system {
+    font-weight: 400;
+    font-style: italic;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track-current);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb-current);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover-current);
+}
+
+/* Terminal cursor blink animation */
+@keyframes blink {
+    0%, 50% {
+        opacity: 1;
+    }
+    51%, 100% {
+        opacity: 0;
+    }
+}
+
+/* Responsive font sizing */
+@media (max-width: 768px) {
+    body {
+        font-size: 13px;
+    }
+    .terminal-content {
+        font-size: 13px;
+        letter-spacing: 0.02em;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        font-size: 12px;
+    }
+    .terminal-content {
+        font-size: 12px;
+        letter-spacing: 0.015em;
+    }
+}
